@@ -1,0 +1,124 @@
+#!/bin/bash
+#
+# try to determine if iPhoto has keyword/location meta missing in our final files
+# needs both an "iPhoto" 9.4 export and a "Phoshare" export from iPhoto in libraries dir
+#
+
+function usage() {
+    echo "usage: $0 /path/to/exported/libraries"
+    echo
+}
+
+export ELPATH=$(echo $1|sed -e 's/\/$//')
+export IPHOTO_PATH="$ELPATH/iPhoto"
+export PHOSHARE_PATH="$ELPATH/Phoshare"
+
+if [ -z "$ELPATH" ]; then
+    echo
+    echo "error: missing path to exported library"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$ELPATH" ]; then
+    echo
+    echo "error: path to exported library does not reference a directory"
+    usage
+    exit 255
+fi
+
+if [[ $ELPATH != /* ]]; then
+    echo
+    echo "error: path to exported library must be absolute"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$IPHOTO_PATH" ]; then
+    echo
+    echo "error: path to exported library does not contain an iPhoto directory"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$PHOSHARE_PATH" ]; then
+    echo
+    echo "error: path to exported library does not contain a Phoshare directory"
+    usage
+    exit 255
+fi
+
+ORIG_PATH=`pwd`
+ALBUM_COUNT=0
+COUNT_SOLO=0
+COUNT_IDENTICAL=0
+COUNT_GPS=0
+COUNT_KEYWORD=0
+COUNT_GPS_KEYWORD=0
+IFS=$'\n'
+for idir in `find $IPHOTO_PATH -type d -maxdepth 1 -depth 1`; do
+    cd "$idir"
+    albumname=$(basename $idir)
+    pdir="$PHOSHARE_PATH/$albumname"
+    if [ -d "$pdir" ]; then
+        # found matching iphoto/phoshare dirs, so lets check some photos
+        let ALBUM_COUNT=ALBUM_COUNT+1
+        ##echo "$idir"
+        IFS=$'\n'
+        for photo in `find $idir -name \*.jpg -type f -maxdepth 1`; do
+            filename=`basename $photo`
+            ifile="$idir/$filename"
+            pfile="$pdir/$filename"
+            if [ -f "$ifile" ] &&
+               [ -f "$pfile" ]; then
+                # now we have matching files for each album dir
+                EXIF_GPS="-GPSAltitude -GPSAltitudeRef -GPSImgDirection -GPSImgDirectionRef -GPSLatitude -GPSLatitudeRef -GPSLongitude -GPSLongitudeRef -GPSLongitudeRef"
+                EXIF_GPS_CLONE="-GPSAltitude -GPSAltitudeRef -GPSDateTime -GPSImgDirection -GPSImgDirectionRef -GPSLatitude -GPSLatitudeRef -GPSLongitude -GPSLongitudeRef -GPSLongitudeRef"
+                EXIF_ARGS="-t -f -S -Keywords $EXIF_GPS"
+                iMeta=$(eval exiftool $EXIF_ARGS \"$ifile\")
+                pMeta=$(eval exiftool $EXIF_ARGS \"$pfile\")
+                iKeywords=$(echo $iMeta|cut -f1)
+                pKeywords=$(echo $pMeta|cut -f1)
+                iGPS=$(echo $iMeta|cut -f2-)
+                pGPS=$(echo $pMeta|cut -f2-)
+                if [ "$iKeywords" == "$pKeywords" ] &&
+                   [ "$iGPS" == "$pGPS" ]; then
+                    let COUNT_IDENTICAL=COUNT_IDENTICAL+1
+                    ##echo "$filename info identical: no changes"
+                elif
+                   [ "$iKeywords" != "$pKeywords" ] &&
+                   [ "$iGPS" == "$pGPS" ]; then
+                    let COUNT_KEYWORD=COUNT_KEYWORD+1
+                    ##echo "$filename syncing keywords ($iKeywords->$pKeywords) from iPhoto"
+                    ##eval exiftool -TagsFromFile \"$ifile\" -overwrite_original_in_place -Keywords \"$pfile\"
+                elif
+                   [ "$iKeywords" == "$pKeywords" ] &&
+                   [ "$iGPS" != "$pGPS" ]; then
+                    let COUNT_GPS=COUNT_GPS+1
+                    ##echo "$filename syncing GPS from iPhoto"
+                    ##eval exiftool -TagsFromFile \"$ifile\" -overwrite_original_in_place $EXIF_GPS \"$pfile\"
+                else
+                    let COUNT_GPS_KEYWORD=COUNT_GPS_KEYWORD+1
+                    ##echo "$filename syncing GPS+keywords from iPhoto"
+                    ##eval exiftool -TagsFromFile \"$ifile\" -overwrite_original_in_place -Keywords $EXIF_GPS \"$pfile\"
+                fi
+            else
+                let COUNT_SOLO=COUNT_SOLO+1
+                echo "$filename does not have a match"
+            fi
+        done
+    fi
+done
+#echo "deleting $PHOSHARE_PATH/**/*.jpg_original ..."
+#find "$PHOSHARE_PATH" -type f -name \*.jpg_original -depth -exec rm -f {} \;
+cd $ORIG_PATH
+unset IFS
+
+
+echo "albums matched in both libraries: $ALBUM_COUNT"
+echo "solo: $COUNT_SOLO"
+echo "identical: $COUNT_IDENTICAL"
+echo "keywords only: $COUNT_KEYWORD"
+echo "GPS only: $COUNT_GPS"
+echo "keywords+GPS: $COUNT_GPS_KEYWORD"
+

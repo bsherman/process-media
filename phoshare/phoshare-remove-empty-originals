@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+# remove any empty originals folders from a Phoshare export
+#
+
+function usage() {
+    echo "usage: $0 /path/to/exported/library"
+    echo
+}
+
+export ELPATH=$(echo $1|sed -e 's/\/$//')
+
+if [ -z "$ELPATH" ]; then
+    echo
+    echo "error: missing path to exported library"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$ELPATH" ]; then
+    echo
+    echo "error: path to exported library does not reference a directory"
+    usage
+    exit 255
+fi
+
+if [[ $ELPATH != /* ]]; then
+    echo
+    echo "error: path to exported library must be absolute"
+    usage
+    exit 255
+fi
+
+ORIG_PATH=`pwd`
+ALBUM_COUNT=0
+IFS=$'\n'
+for file in `find "$ELPATH" -name Originals`; do
+    out=`ls "$file"`
+    if [ -z "$out" ]; then
+        echo empty dir: $file
+        rm "$file/.phoshare"
+        rmdir "$file"
+        let ALBUM_COUNT=ALBUM_COUNT+1
+    fi
+done
+
+unset IFS
+
+
+echo "empty Originals albums removed: $ALBUM_COUNT"
+

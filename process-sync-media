@@ -1,0 +1,218 @@
+#!/usr/bin/env python
+#
+# Requires command line utility: exiftool
+#
+#
+
+import os
+import random
+import string
+import subprocess
+import sys
+
+# strings
+inplace_key = '--inplace-rename'
+
+# =============== functions ================ #
+def usage():
+    print "usage: " + sys.argv[0] + " /source [" + inplace_key + "]|[/target/photo /target/video]\n"
+
+def verify_directory(name=None, directory=None):
+    if None == name:
+        print "error: can't check unknown directory type"
+        usage()
+        sys.exit(255)
+
+    if not os.path.exists(directory):
+        print "error: " + directory + " does not exist"
+        usage()
+        sys.exit(254)
+
+    if not os.path.isdir(directory):
+        print "error: " + directory + " is not a directory"
+        usage()
+        sys.exit(253)
+
+def randomword(length):
+    return ''.join(random.choice(string.lowercase) for i in range(length))
+
+
+def random_tmp_dir():
+    return os.path.join("/tmp", 'media_src_'+randomword(10))
+
+'''
+Returns:
+- a dict with these keys:
+    mimetype - standard mimetype string
+    file_ext - lowercase version of file extension for nicer filename renaming (contains .)
+    date_key - is the tag/key chosed to be used for renaming
+    date - is the date string chosen from the tag/key above
+- if can't get data, tuple will be full of None values
+'''
+def get_exiftool_meta(file=None):
+    exif_seperator = ': '
+    key_FileExtension = 'FileExtension'
+    key_MIMEType = 'MIMEType'
+    key_DateTimeOriginal = 'DateTimeOriginal'
+    key_CreateDate = 'CreateDate'
+    key_CreationDate = 'CreationDate'
+
+    mimetype = None
+    file_name = None
+    file_ext = None
+    date_key = None
+    date = None
+    meta = dict()
+    if None == file:
+        print "warn: exiftool can't get meta for $file"
+    else:
+        p = subprocess.Popen(["exiftool", "-S", "-"+key_MIMEType, "-"+key_DateTimeOriginal, "-"+key_CreateDate, "-"+key_CreationDate, file], stdout=subprocess.PIPE)
+        returncode = p.wait()
+        #if 0 != returncode:
+        #    print "warn: exiftool failure getting meta for " + file
+        #    # this warning isn't really needed because we'll get the mime type warning
+
+        # parse out the date/time/mime keys
+        if p.stdout != None:
+            for line in p.stdout:
+                part = line.partition(exif_seperator)
+                if part[1] == exif_seperator:
+                    meta[part[0]]=part[2]
+
+    if key_MIMEType in meta:
+        mimetype = meta[key_MIMEType].strip().lower()
+
+    if key_DateTimeOriginal in meta:
+        date_key = key_DateTimeOriginal
+    elif key_CreateDate in meta:
+        date_key = key_CreateDate
+    elif key_CreationDate in meta:
+        date_key = key_CreationDate
+
+    if date_key in meta:
+        date = meta[date_key]
+
+    if None != file and '.' in file:
+        file_name, file_ext = os.path.splitext(file)
+        file_ext = file_ext.strip().lower()
+
+    return dict(mimetype=mimetype, file_name=file_name, file_ext=file_ext, date_key=date_key, date=date)
+
+# do common processing
+def process_common(file, rename_key, inplace, file_pattern, dir_pattern):
+    # exiftool can rename and move to directory all at once
+    rename_directive = '-filename<' + rename_key
+    rename_pattern = file_pattern
+    if not inplace:
+        rename_pattern = dir_pattern + file_pattern
+
+    p = subprocess.Popen(["exiftool", "-v1", "-d", rename_pattern, rename_directive, file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    returncode = p.wait()
+    if 0 != returncode:
+        print "warn: exiftool fail failed to rename " + file
+
+    stdout = ''
+    if p.stdout != None:
+        for line in p.stdout:
+            stdout += line
+    if 0 < len(stdout.strip()):
+        print stdout
+
+    stderr = ''
+    if p.stderr != None:
+        for line in p.stderr:
+            stderr += line
+    if 0 < len(stderr.strip()):
+        print stderr
+
+# do video
+def process_video(file, target_dir, meta, inplace):
+    #exiftool -d TARGET_VIDEO/%Y/%Y-%m/%Y%m%d_%H%M%S-%%f%%-c.%%e "-filename<CreateDate" IMG_3332.mov
+    dir_pattern = target_dir + '/%Y/%Y-%m/'
+    file_pattern = '%Y%m%d_%H%M - %%f%%-c' + meta['file_ext']
+
+    process_common(file, meta['date_key'], inplace, file_pattern, dir_pattern)
+
+# do jpeg
+def process_jpeg(file, target_dir, meta, inplace):
+    #exiftool -d TARGET_IMAGE/%Y/%Y-%m/%Y-%m-%d/%Y%m%d_%H%M%S-%%f%%-c.%%e "-filename<CreateDate" IMG_3332.jpg
+    dir_pattern = target_dir + '/%Y/%Y-%m/%Y-%m-%d/'
+    file_pattern = '%Y%m%d_%H%M%S - %%f%%-c' + meta['file_ext']
+
+    process_common(file, meta['date_key'], inplace, file_pattern, dir_pattern)
+
+
+# =============== code execution begins here ================ #
+
+if (len(sys.argv) != 4 and len(sys.argv) != 3):
+    print "error: missing arguments"
+    usage()
+    sys.exit(252)
+
+target_inplace = False
+
+if 4 == len(sys.argv):
+    target_photo = sys.argv[2]
+    target_video = sys.argv[3]
+    verify_directory("target/photo", sys.argv[2])
+    verify_directory("target/video", sys.argv[3])
+    print target_photo
+    print target_video
+    target_inplace = False
+elif 3 == len(sys.argv) and  sys.argv[2] == inplace_key:
+    target_photo = "None"
+    target_video = "None"
+    print inplace_key
+    target_inplace = True
+else:
+    usage()
+    sys.exit(252)
+
+source = sys.argv[1]
+verify_directory("source", sys.argv[1])
+print source
+
+#START
+
+
+# find all files in source dir
+for root, dirs, files in os.walk(source):
+    for filename in files:
+        if filename.startswith('.'):
+            # we don't want dot files
+            continue
+
+        # process one file at a time
+        file = os.path.join(root, filename)
+        target = root
+        meta = get_exiftool_meta(file)
+
+        if 0 == len(meta):
+            print 'warn: could not read meta, skipping: ' + file
+            continue
+
+        elif None == meta['mimetype']:
+            print 'warn: did not find mimetype, skipping: ' + file
+            continue
+
+        elif None == meta['date_key']:
+            print 'warn: did not find usable create date, skipping: ' + file
+            continue
+
+        elif 'image/jpeg' == meta['mimetype']:
+            if not target_inplace:
+                target = target_photo
+
+            process_jpeg(file, target, meta, target_inplace)
+
+        elif 'video' in meta['mimetype']:
+            if not target_inplace:
+                target = target_video
+
+            process_video(file, target, meta, target_inplace)
+
+        else:
+            print 'warn: unsupported file type: '+meta['mimetype']
+
+
+#END

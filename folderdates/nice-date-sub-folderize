@@ -1,0 +1,65 @@
+#!/bin/bash
+#
+# for all folders in target named like '2012-06-01' (YYYY-MM-DD)
+# create a YYYY-MM folder and move matching folders under that one
+#
+
+function usage() {
+    echo "usage: $0 /path/to/exported/library"
+    echo
+}
+
+export ELPATH=$(echo $1|sed -e 's/\/$//')
+
+if [ -z "$ELPATH" ]; then
+    echo
+    echo "error: missing path to exported library"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$ELPATH" ]; then
+    echo
+    echo "error: path to exported library does not reference a directory"
+    usage
+    exit 255
+fi
+
+if [[ $ELPATH != /* ]]; then
+    echo
+    echo "error: path to exported library must be absolute"
+    usage
+    exit 255
+fi
+
+ORIG_PATH=`pwd`
+COUNT_CREATED=0
+COUNT_MOVED=0
+COUNT_ERROR=0
+IFS=$'\n'
+for dir in `ls "$ELPATH"`; do
+    regex="[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
+    if [[ $dir =~ $regex ]]; then
+        PARENT=$(echo $dir | cut -f1-2 -d-)
+        if [ ! -d "$ELPATH/$PARENT" ]; then
+            let COUNT_CREATED=COUNT_CREATED+1
+            echo "mkdir $PARENT"
+            mkdir "$ELPATH/$PARENT"
+        fi
+        let COUNT_MOVED=COUNT_MOVED+1
+        echo "mv $dir $PARENT"
+        mv "$ELPATH/$dir" "$ELPATH/$PARENT"
+    else
+        # error
+        let COUNT_ERROR=COUNT_ERROR+1
+        echo "err: could not parse $dir"
+    fi
+done
+
+unset IFS
+
+
+echo "created parents: $COUNT_CREATED"
+echo "moved folders: $COUNT_MOVED"
+echo "error folders: $COUNT_ERROR"
+

@@ -1,0 +1,59 @@
+#!/bin/bash
+#
+# rename all folders in top level of directory from natural english
+# like "Jun 1, 2012" to numeric like "2012-06-01"
+#
+# should NOT rename if the date parses to something invalid (1969-12-31)
+#
+
+function usage() {
+    echo "usage: $0 /path/to/exported/library"
+    echo
+}
+
+export ELPATH=$(echo $1|sed -e 's/\/$//')
+
+if [ -z "$ELPATH" ]; then
+    echo
+    echo "error: missing path to exported library"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$ELPATH" ]; then
+    echo
+    echo "error: path to exported library does not reference a directory"
+    usage
+    exit 255
+fi
+
+if [[ $ELPATH != /* ]]; then
+    echo
+    echo "error: path to exported library must be absolute"
+    usage
+    exit 255
+fi
+
+ORIG_PATH=`pwd`
+COUNT_RENAMED=0
+COUNT_ERROR=0
+IFS=$'\n'
+for dir in `ls "$ELPATH"`; do
+    NEW=`human-date-parse $dir`
+    if [ "0" == "$?" ]; then
+        let COUNT_RENAMED=COUNT_RENAMED+1
+        echo "mv $dir $NEW"
+        mv "$ELPATH/$dir" "$ELPATH/$NEW"
+    else
+        # error
+        let COUNT_ERROR=COUNT_ERROR+1
+        echo "err: could not parse $dir"
+    fi
+done
+
+unset IFS
+
+
+echo "renamed folders: $COUNT_RENAMED"
+echo "error folders: $COUNT_ERROR"
+

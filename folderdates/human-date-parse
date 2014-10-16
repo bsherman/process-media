@@ -1,0 +1,30 @@
+#!/usr/bin/php
+<?php
+date_default_timezone_set('America/Los_Angeles');
+$dateString = trim($argv[1]);
+$dateString = trim($dateString, "/");
+$myTimestamp = strtotime($dateString);
+$myDate = date('Y-m-d', $myTimestamp);
+echo $myDate;
+
+# now lets check  the value to return error state
+if ( ($myDate == "1969-12-31") && ($dateString != "Dec 31, 1969") ) {
+    # default error value
+    exit(1);
+} else if ("$dateString" != "$myDate") {
+    $myD = split("-", $myDate);
+    $dS = split(" ", $dateString);
+    if ($myD[0] != $dS[2]) {
+        # years don't match
+        exit(1);
+    } else if ( is_numeric($ds[1]) && is_numeric($myD[2]) ) {
+        $d1 = $ds[1]+0;
+        $d2 = $myD[2]+0;
+        if ($d1 != $d2) {
+            # days don't match
+            exit(1);
+        }
+    }
+}
+# default exit(0) // success
+?>

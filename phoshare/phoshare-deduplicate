@@ -1,0 +1,104 @@
+#!/bin/bash
+#
+# try to determine if iPhoto created a duplicate image just to switch orientation
+#
+
+function usage() {
+    echo "usage: $0 /path/to/phoshare/exported/library"
+    echo
+}
+
+export ELPATH=$(echo $1|sed -e 's/\/$//')
+
+if [ -z "$ELPATH" ]; then
+    echo
+    echo "error: missing path to exported library"
+    usage
+    exit 255
+fi
+
+if [ ! -d "$ELPATH" ]; then
+    echo
+    echo "error: path to exported library does not reference a directory"
+    usage
+    exit 255
+fi
+
+if [[ $ELPATH != /* ]]; then
+    echo
+    echo "error: path to exported library must be absolute"
+    usage
+    exit 255
+fi
+
+ORIG_PATH=`pwd`
+ALBUM_COUNT=0
+COUNT_SOLO=0
+COUNT_IDENTICAL=0
+COUNT_ROTATED=0
+COUNT_EDITED=0
+IFS=$'\n'
+for dir in `find $ELPATH -type d -maxdepth 1 -depth 1`; do
+    cd "$dir"
+    if [ -d 'Originals' ]; then
+        # found an Originals dir, so lets check some photos
+        let ALBUM_COUNT=ALBUM_COUNT+1
+        echo "$dir"
+        IFS=$'\n'
+        for photo in `find $dir -name \*.jpg -type f -maxdepth 1`; do
+            filename=`basename $photo`
+            if [ -f "Originals/$filename" ]; then
+                # now we have both a file and it's original
+                IFS=$'\t'
+                currMeta=($(exiftool -f -t -S -ExifImageHeight -ExifImageWidth -ImageHeight -ImageWidth -Software "$filename"))
+                origMeta=($(exiftool -f -t -S -ExifImageHeight -ExifImageWidth -ImageHeight -ImageWidth -Software "Originals/$filename"))
+                # meta[0]=exifHeight
+                # meta[1]=exifWidth
+                # meta[2]=actualHeight
+                # meta[3]=actualWidth
+                # meta[4]=software
+                if [ ${currMeta[0]} == ${origMeta[0]} ] &&
+                   [ ${currMeta[1]} == ${origMeta[1]} ] &&
+                   [ ${currMeta[2]} == ${origMeta[2]} ] &&
+                   [ ${currMeta[3]} == ${origMeta[3]} ] &&
+                   [ ${currMeta[4]} == ${origMeta[4]} ]; then
+                    let COUNT_IDENTICAL=COUNT_IDENTICAL+1
+                    echo "$filename is identical to original: removing duplicate original"
+                    rm -f Originals/$filename
+                elif
+                   [ ${currMeta[0]} == ${origMeta[0]} ] &&
+                   [ ${currMeta[1]} == ${origMeta[1]} ] &&
+                   [ ${currMeta[2]} == ${origMeta[3]} ] &&
+                   [ ${currMeta[4]} != ${origMeta[4]} ]; then
+                    let COUNT_ROTATED=COUNT_ROTATED+1
+                    echo "$filename is a rotated version of original: removing original"
+                    rm -f Originals/$filename
+                else
+                    let COUNT_EDITED=COUNT_EDITED+1
+                    echo "$filename is distinct from original: keeping both copies"
+                    echo "${currMeta[0]} ${currMeta[1]} ${currMeta[2]} ${currMeta[3]} ${currMeta[4]}"
+                    echo "${origMeta[0]} ${origMeta[1]} ${origMeta[2]} ${origMeta[3]} ${origMeta[4]}"
+                fi
+            else
+                let COUNT_SOLO=COUNT_SOLO+1
+                echo "$filename does not have an original"
+            fi
+        done
+        LSFILES=`ls Originals`
+        if [ -z "$LSFILES" ]; then
+            echo "empty dir: $dir/Originals"
+            rm Originals/.phoshare
+            rmdir Originals
+        fi
+    fi
+done
+cd $ORIG_PATH
+unset IFS
+
+
+echo "albums with Originals: $ALBUM_COUNT"
+echo "solo: $COUNT_SOLO"
+echo "identical: $COUNT_IDENTICAL"
+echo "rotated: $COUNT_ROTATED"
+echo "edited: $COUNT_EDITED"
+
